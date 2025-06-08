@@ -32,7 +32,7 @@ def verify_partition_content(conn, prefix, number_of_partitions):
     cur.execute(f"SELECT COUNT(*) FROM {RATINGS_TABLE}")
     original_count = cur.fetchone()[0]
     print_progress(f"Total rows: partitions={total_rows}, original={original_count}")
-    print_progress("✓ Partition content passed!" if total_rows == original_count else "✗ Partition content failed!")
+    print_progress("Partition content passed!" if total_rows == original_count else "Partition content failed!")
     cur.close()
 
 def main():
