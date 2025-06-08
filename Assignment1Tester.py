@@ -1,4 +1,3 @@
-#!/usr/bin/python2.7
 import psycopg2
 import traceback
 import testHelper
