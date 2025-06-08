@@ -1,75 +1,105 @@
-#
-# Tester for the assignement1
-#
-DATABASE_NAME = 'dds_assgn1'
-
-# TODO: Change these as per your code
-RATINGS_TABLE = 'ratings'
-RANGE_TABLE_PREFIX = 'range_part'
-RROBIN_TABLE_PREFIX = 'rrobin_part'
-USER_ID_COLNAME = 'userid'
-MOVIE_ID_COLNAME = 'movieid'
-RATING_COLNAME = 'rating'
-INPUT_FILE_PATH = 'test_data.dat'
-ACTUAL_ROWS_IN_INPUT_FILE = 20  # Number of lines in the input file
-
+#!/usr/bin/python2.7
 import psycopg2
 import traceback
 import testHelper
 import Interface as MyAssignment
+import time
 
-if __name__ == '__main__':
+# Constants
+DATABASE_NAME = 'dds_assgn1'
+RATINGS_TABLE = 'ratings'
+RANGE_TABLE_PREFIX = 'range_part'
+RROBIN_TABLE_PREFIX = 'rrobin_part'
+INPUT_FILE_PATH = 'ratings.dat'
+ACTUAL_ROWS_IN_INPUT_FILE = 10000054
+
+def print_progress(message, indent=0):
+    """Print progress message with timestamp and indentation"""
+    print(f"[{time.strftime('%H:%M:%S')}] {'  ' * indent}{message}")
+
+def verify_partition_content(conn, prefix, number_of_partitions):
+    """Verify content of partition tables"""
+    cur = conn.cursor()
+    total_rows = 0
+    print_progress(f"Verifying {prefix} partition tables:")
+    for i in range(number_of_partitions):
+        table_name = f"{prefix}{i}"
+        cur.execute(f"SELECT COUNT(*) FROM {table_name}")
+        count = cur.fetchone()[0]
+        total_rows += count
+        print_progress(f"- {table_name}: {count} rows", indent=1)
+    
+    cur.execute(f"SELECT COUNT(*) FROM {RATINGS_TABLE}")
+    original_count = cur.fetchone()[0]
+    print_progress(f"Total rows: partitions={total_rows}, original={original_count}")
+    print_progress("✓ Partition content passed!" if total_rows == original_count else "✗ Partition content failed!")
+    cur.close()
+
+def main():
     try:
+        print_progress("Starting test...")
         testHelper.createdb(DATABASE_NAME)
 
         with testHelper.getopenconnection(dbname=DATABASE_NAME) as conn:
             conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-
             testHelper.deleteAllPublicTables(conn)
 
+            # Test loadratings
+            print_progress("Testing loadratings...")
+            start_time = time.time()
             [result, e] = testHelper.testloadratings(MyAssignment, RATINGS_TABLE, INPUT_FILE_PATH, conn, ACTUAL_ROWS_IN_INPUT_FILE)
-            if result :
-                print("loadratings function pass!")
+            load_time = time.time() - start_time
+            print_progress(f"loadratings: {'passed' if result else 'failed'}! ({load_time:.3f} seconds)")
+
+            # Get partition choice
+            partition_choice = input("\nChoose partitioning (range/roundrobin): ").strip().lower()
+            start_time = time.time()
+
+            if partition_choice == 'range':
+                print_progress("Testing RANGE partitioning...")
+                print_progress("Creating 5 range partitions...")
+                [result, e] = testHelper.testrangepartition(MyAssignment, RATINGS_TABLE, 5, conn, 0, ACTUAL_ROWS_IN_INPUT_FILE)
+                if result:
+                    print_progress("rangepartition passed!")
+                    verify_partition_content(conn, RANGE_TABLE_PREFIX, 5)
+                else:
+                    print_progress("rangepartition failed!")
+
+                print_progress("Testing range insert...")
+                [result, e] = testHelper.testrangeinsert(MyAssignment, RATINGS_TABLE, 100, 2, 3, conn, '2')
+                print_progress(f"rangeinsert: {'passed' if result else 'failed'}!")
+
+            elif partition_choice == 'roundrobin':
+                print_progress("Testing ROUND ROBIN partitioning...")
+                print_progress("Creating 5 roundrobin partitions...")
+                [result, e] = testHelper.testroundrobinpartition(MyAssignment, RATINGS_TABLE, 5, conn, 0, ACTUAL_ROWS_IN_INPUT_FILE)
+                if result:
+                    print_progress("roundrobinpartition passed!")
+                    verify_partition_content(conn, RROBIN_TABLE_PREFIX, 5)
+                else:
+                    print_progress("roundrobinpartition failed!")
+
+                print_progress("Testing roundrobin insert...")
+                [result, e] = testHelper.testroundrobininsert(MyAssignment, RATINGS_TABLE, 100, 1, 3, conn, '4')
+                print_progress(f"roundrobininsert: {'passed' if result else 'failed'}!")
+
             else:
-                print("loadratings function fail!")
+                print_progress("Invalid choice! Choose 'range' or 'roundrobin'.")
+                return
 
-            [result, e] = testHelper.testrangepartition(MyAssignment, RATINGS_TABLE, 5, conn, 0, ACTUAL_ROWS_IN_INPUT_FILE)
-            if result :
-                print("rangepartition function pass!")
-            else:
-                print("rangepartition function fail!")
+            # Display total execution time
+            elapsed_time = time.time() - start_time
+            print_progress(f"Total partitioning + insert time: {elapsed_time:.3f} seconds")
 
-            # ALERT:: Use only one at a time i.e. uncomment only one line at a time and run the script
-            [result, e] = testHelper.testrangeinsert(MyAssignment, RATINGS_TABLE, 100, 2, 3, conn, '2')
-            # [result, e] = testHelper.testrangeinsert(MyAssignment, RATINGS_TABLE, 100, 2, 0, conn, '0')
-            if result:
-                print("rangeinsert function pass!")
-            else:
-                print("rangeinsert function fail!")
-
-            testHelper.deleteAllPublicTables(conn)
-            MyAssignment.loadratings(RATINGS_TABLE, INPUT_FILE_PATH, conn)
-
-            [result, e] = testHelper.testroundrobinpartition(MyAssignment, RATINGS_TABLE, 5, conn, 0, ACTUAL_ROWS_IN_INPUT_FILE)
-            if result :
-                print("roundrobinpartition function pass!")
-            else:
-                print("roundrobinpartition function fail")
-
-            # ALERT:: Change the partition index according to your testing sequence.
-            [result, e] = testHelper.testroundrobininsert(MyAssignment, RATINGS_TABLE, 100, 1, 3, conn, '0')
-            # [result, e] = testHelper.testroundrobininsert(MyAssignment, RATINGS_TABLE, 100, 1, 3, conn, '1')
-            # [result, e] = testHelper.testroundrobininsert(MyAssignment, RATINGS_TABLE, 100, 1, 3, conn, '2')
-            if result :
-                print("roundrobininsert function pass!")
-            else:
-                print("roundrobininsert function fail!")
-
-            choice = input('Press enter to Delete all tables? ')
-            if choice == '':
+            # Delete tables
+            if input('\nPress enter to delete all tables: ') == '':
+                print_progress("Deleting all tables...")
                 testHelper.deleteAllPublicTables(conn)
-            if not conn.close:
-                conn.close()
+                print_progress("Tables deleted.")
 
-    except Exception as detail:
+    except Exception:
+        print_progress("Error occurred:")
         traceback.print_exc()
+
+if __name__ == '__main__':
+    main()
